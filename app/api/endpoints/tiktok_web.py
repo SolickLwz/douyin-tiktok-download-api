@@ -1,4 +1,5 @@
 from typing import List
+import re
 
 from fastapi import APIRouter, Query, Body, Request, HTTPException  # 导入FastAPI组件
 
@@ -36,18 +37,78 @@ async def fetch_one_video(request: Request,
     # [示例/Example]
     itemId = "7339393672959757570"
     """
+    # Validate itemId format (TikTok video IDs are numeric, typically 19 digits)
+    if not itemId or not itemId.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponseModel(
+                code=400,
+                message="Invalid video ID: itemId cannot be empty",
+                router=request.url.path,
+                params={"itemId": itemId}
+            ).dict()
+        )
+    
+    # Check for valid numeric format (TikTok IDs are 19+ digit numbers)
+    if not re.match(r'^\d{10,21}$', itemId.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponseModel(
+                code=400,
+                message=f"Invalid video ID format: '{itemId}' is not a valid TikTok video ID (expected numeric ID)",
+                router=request.url.path,
+                params={"itemId": itemId}
+            ).dict()
+        )
+    
     try:
         data = await TikTokWebCrawler.fetch_one_video(itemId)
+        
+        # Validate response structure
+        if not isinstance(data, dict):
+            raise ValueError(f"Unexpected API response type: expected dict, got {type(data).__name__}")
+        
+        # Check for TikTok API error responses
+        if data.get("status_code") == 0 and "item_info" not in data:
+            # TikTok returned success but no video data - likely invalid/deleted video
+            raise ValueError(f"Video not found or unavailable: itemId '{itemId}' may be invalid or removed")
+        
         return ResponseModel(code=200,
                              router=request.url.path,
                              data=data)
+    except ValueError as e:
+        # Validation errors from our code
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorResponseModel(
+                code=404,
+                message=str(e),
+                router=request.url.path,
+                params={"itemId": itemId}
+            ).dict()
+        )
     except Exception as e:
-        status_code = 400
-        detail = ErrorResponseModel(code=status_code,
-                                    router=request.url.path,
-                                    params=dict(request.query_params),
-                                    )
-        raise HTTPException(status_code=status_code, detail=detail.dict())
+        # Check for TikTok API-level errors in exception message
+        error_msg = str(e).lower()
+        if "not found" in error_msg or "unavailable" in error_msg or "invalid" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail=ErrorResponseModel(
+                    code=404,
+                    message=f"Video not accessible: {str(e)}",
+                    router=request.url.path,
+                    params={"itemId": itemId}
+                ).dict()
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponseModel(
+                code=400,
+                message=f"Failed to parse video: {str(e)}",
+                router=request.url.path,
+                params={"itemId": itemId}
+            ).dict()
+        )
 
 
 # 获取用户的个人信息
