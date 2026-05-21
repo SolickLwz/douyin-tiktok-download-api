@@ -54,22 +54,24 @@ async def merge_bilibili_video_audio(video_url: str, audio_url: str, request: Re
     """
     下载并合并 Bilibili 的视频流和音频流
     """
+    video_temp_path = None
+    audio_temp_path = None
     try:
         # 创建临时文件
         with tempfile.NamedTemporaryFile(suffix='.m4v', delete=False) as video_temp:
             video_temp_path = video_temp.name
         with tempfile.NamedTemporaryFile(suffix='.m4a', delete=False) as audio_temp:
             audio_temp_path = audio_temp.name
-        
+
         # 下载视频流
         video_success = await fetch_data_stream(video_url, request, headers=headers, file_path=video_temp_path)
         # 下载音频流
         audio_success = await fetch_data_stream(audio_url, request, headers=headers, file_path=audio_temp_path)
-        
+
         if not video_success or not audio_success:
             print("Failed to download video or audio stream")
             return False
-        
+
         # 使用 FFmpeg 合并视频和音频
         ffmpeg_cmd = [
             'ffmpeg', '-y',  # -y 覆盖输出文件
@@ -80,7 +82,7 @@ async def merge_bilibili_video_audio(video_url: str, audio_url: str, request: Re
             '-f', 'mp4',     # 确保输出格式为MP4
             output_path
         ]
-        
+
         print(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
         print(f"FFmpeg return code: {result.returncode}")
@@ -88,25 +90,21 @@ async def merge_bilibili_video_audio(video_url: str, audio_url: str, request: Re
             print(f"FFmpeg stderr: {result.stderr}")
         if result.stdout:
             print(f"FFmpeg stdout: {result.stdout}")
-        
-        # 清理临时文件
-        try:
-            os.unlink(video_temp_path)
-            os.unlink(audio_temp_path)
-        except:
-            pass
-        
+
         return result.returncode == 0
-        
+
     except Exception as e:
-        # 清理临时文件
-        try:
-            os.unlink(video_temp_path)
-            os.unlink(audio_temp_path)
-        except:
-            pass
         print(f"Error merging video and audio: {e}")
         return False
+
+    finally:
+        # 清理临时文件
+        for path in (video_temp_path, audio_temp_path):
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
 @router.get("/download", summary="在线下载抖音|TikTok|Bilibili视频/图片/Online download Douyin|TikTok|Bilibili video/image")
 async def download_file_hybrid(request: Request,
