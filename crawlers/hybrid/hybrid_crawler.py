@@ -118,24 +118,24 @@ class HybridCrawler:
         api_data = None
         # 判断链接类型并处理数据/Judge link type and process data
         # 抖音数据处理/Douyin data processing
-        if platform == 'douyin':
-            # 抖音视频数据处理/Douyin video data processing
-            if url_type == 'video':
-                # 将信息储存在字典中/Store information in a dictionary
-                uri = data['video']['play_addr']['uri']
-                wm_video_url_HQ = data['video']['play_addr']['url_list'][0]
-                wm_video_url = f"https://aweme.snssdk.com/aweme/v1/playwm/?video_id={uri}&radio=1080p&line=0"
-                nwm_video_url_HQ = wm_video_url_HQ.replace('playwm', 'play')
-                nwm_video_url = f"https://aweme.snssdk.com/aweme/v1/play/?video_id={uri}&ratio=1080p&line=0"
-                api_data = {
-                    'video_data':
-                        {
-                            'wm_video_url': wm_video_url,
-                            'wm_video_url_HQ': wm_video_url_HQ,
-                            'nwm_video_url': nwm_video_url,
-                            'nwm_video_url_HQ': nwm_video_url_HQ
-                        }
-                }
+        # 抖音视频数据处理/Douyin video data processing
+
+if url_type == 'video':
+    # 将信息储存在字典中/Store information in a dictionary
+    uri = data['video']['play_addr']['uri']
+    wm_video_url_HQ = data['video']['play_addr']['url_list'][0]
+    wm_video_url = f"https://aweme.snssdk.com/aweme/v1/playwm/?video_id={uri}&radio=1080p&line=0"
+    nwm_video_url_HQ = wm_video_url_HQ.replace('playwm', 'play')
+    nwm_video_url = f"https://aweme.snssdk.com/aweme/v1/play/?video_id={uri}&ratio=1080p&line=0"
+    api_data = {
+        'video_data':
+            {
+                'wm_video_url': wm_video_url,
+                'wm_video_url_HQ': wm_video_url_HQ,
+                'nwm_video_url': nwm_video_url,
+                'nwm_video_url_HQ': nwm_video_url_HQ
+            }
+    }
             # 抖音图片数据处理/Douyin image data processing
             elif url_type == 'image':
                 # 无水印图片列表/No watermark image list
