@@ -173,30 +173,35 @@ class HybridCrawler:
             }
             # 抖音视频数据处理/Douyin video data processing
             if url_type == 'video':
-                bit_rates = data.get('video', {}).get('bit_rate', [])
-                best_video_url = None
-                max_resolution = 0
+                # 将信息储存在字典中/Store information in a dictionary
+                uri = data['video']['play_addr']['uri']
+                wm_video_url_HQ = data['video']['play_addr']['url_list'][0]
+                wm_video_url = f"https://aweme.snssdk.com/aweme/v1/playwm/?video_id={uri}&radio=1080p&line=0"
+                nwm_video_url_HQ = wm_video_url_HQ.replace('playwm', 'play')
+                nwm_video_url = f"https://aweme.snssdk.com/aweme/v1/play/?video_id={uri}&ratio=1080p&line=0"
                 
+                # 遍历bit_rate找到最高清的视频链接
+                bit_rates = data.get('video', {}).get('bit_rate', [])
                 if bit_rates:
+                    max_resolution = 0
                     for br in bit_rates:
-                        width = br.get('play_addr', {}).get('width', 0)
-                        height = br.get('play_addr', {}).get('height', 0)
+                        play_addr = br.get('play_addr', {})
+                        width = play_addr.get('width', 0)
+                        height = play_addr.get('height', 0)
                         resolution = width * height
                         if resolution > max_resolution:
-                            max_resolution = resolution
-                            url_list = br.get('play_addr', {}).get('url_list', [])
+                            url_list = play_addr.get('url_list', [])
                             if url_list:
-                                best_video_url = url_list[0].replace('playwm', 'play')
-                
-                if not best_video_url:
-                    uri = data['video']['play_addr']['uri']
-                    wm_video_url_HQ = data['video']['play_addr']['url_list'][0]
-                    best_video_url = wm_video_url_HQ.replace('playwm', 'play')
+                                max_resolution = resolution
+                                nwm_video_url_HQ = url_list[0].replace('playwm', 'play')
                 
                 api_data = {
                     'video_data':
                         {
-                            'nwm_video_url_HQ': best_video_url
+                            'wm_video_url': wm_video_url,
+                            'wm_video_url_HQ': wm_video_url_HQ,
+                            'nwm_video_url': nwm_video_url,
+                            'nwm_video_url_HQ': nwm_video_url_HQ
                         }
                 }
             # 抖音图片数据处理/Douyin image data processing
@@ -308,6 +313,30 @@ class HybridCrawler:
                     }
         # 更新数据/Update data
         result_data.update(api_data)
+        
+        # 如果是最小数据模式，只返回关键字段
+        if minimal:
+            # 提取作者昵称（不同平台字段不同）
+            if platform == 'bilibili':
+                author_name = result_data.get('author', {}).get('name', '') if result_data.get('author') else ''
+            else:
+                author_name = result_data.get('author', {}).get('nickname', '') if result_data.get('author') else ''
+            
+            # 获取视频或图片链接
+            media_url = ''
+            if api_data and 'video_data' in api_data:
+                media_url = api_data['video_data'].get('nwm_video_url_HQ', '')
+            elif api_data and 'image_data' in api_data:
+                image_list = api_data['image_data'].get('no_watermark_image_list', [])
+                media_url = image_list[0] if image_list else ''
+            
+            # 只返回精简的三个字段
+            return {
+                'author': author_name,
+                'title': result_data.get('desc', ''),
+                'video_url': media_url
+            }
+        
         return result_data
 
     async def main(self):
