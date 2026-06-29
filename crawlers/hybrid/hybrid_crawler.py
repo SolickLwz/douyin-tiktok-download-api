@@ -14,75 +14,195 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+# 　　　　 　　  ＿＿
+# 　　　 　　 ／＞　　フ
+# 　　　 　　| 　_　 _ l
+# 　 　　 　／` ミ＿xノ
+# 　　 　 /　　　 　 |       Feed me Stars ⭐ ️
+# 　　　 /　 ヽ　　 ﾉ
+# 　 　 │　　|　|　|
+# 　／￣|　　 |　|　|
+# 　| (￣ヽ＿_ヽ_)__)
+# 　＼二つ
+# ==============================================================================
+#
+# Contributor Link:
+# - https://github.com/Evil0ctal
+#
+# ==============================================================================
 
 import asyncio
-import sys
-import re
-import json
-import uuid
-import httpx
-import time
-from urllib.parse import urlparse, parse_qs
-from loguru import logger
-from pathlib import Path
 
-# 添加项目根目录到Python路径
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from crawlers.douyin.web.web_crawler import DouyinWebCrawler
-from crawlers.tiktok.web.web_crawler import TikTokWebCrawler
-from crawlers.bilibili.web.web_crawler import BilibiliWebCrawler
+from crawlers.douyin.web.web_crawler import DouyinWebCrawler  # 导入抖音Web爬虫
+from crawlers.tiktok.web.web_crawler import TikTokWebCrawler  # 导入TikTok Web爬虫
+from crawlers.tiktok.app.app_crawler import TikTokAPPCrawler  # 导入TikTok App爬虫
 
 
 class HybridCrawler:
-    """混合爬虫类，统一处理多个平台的视频解析"""
-
     def __init__(self):
-        # 初始化各平台爬虫
-        self.douyin_crawler = DouyinWebCrawler()
-        self.tiktok_crawler = TikTokWebCrawler()
-        self.bilibili_crawler = BilibiliWebCrawler()
-        
-        # 平台URL模式匹配
-        self.platform_patterns = {
-            'douyin': re.compile(r'(?:douyin\.com|ies\.douyin\.com|v\.douyin\.com)'),
-            'tiktok': re.compile(r'(?:tiktok\.com|vt\.tiktok\.com|www\.tiktok\.com)'),
-            'bilibili': re.compile(r'(?:bilibili\.com|b23\.tv|www\.bilibili\.com)')
-        }
-
-    async def identify_platform(self, url: str) -> str:
-        """根据URL识别平台"""
-        for platform, pattern in self.platform_patterns.items():
-            if pattern.search(url):
-                return platform
-        return 'unknown'
+        self.DouyinWebCrawler = DouyinWebCrawler()
+        self.TikTokWebCrawler = TikTokWebCrawler()
+        self.TikTokAPPCrawler = TikTokAPPCrawler()
 
     async def hybrid_parsing_single_video(self, url: str, minimal: bool = False):
-        """统一视频解析入口"""
-        platform = await self.identify_platform(url)
-        
-        if platform == 'douyin':
-            result = await self.douyin_crawler.parsing_single_video(url, minimal)
-        elif platform == 'tiktok':
-            result = await self.tiktok_crawler.parsing_single_video(url, minimal)
-        elif platform == 'bilibili':
-            result = await self.bilibili_crawler.parsing_single_video(url, minimal)
+        # 解析抖音视频/Parse Douyin video
+        if "douyin" in url:
+            platform = "douyin"
+            aweme_id = await self.DouyinWebCrawler.get_aweme_id(url)
+            data = await self.DouyinWebCrawler.fetch_one_video(aweme_id)
+            data = data.get("aweme_detail")
+            # $.aweme_detail.aweme_type
+            aweme_type = data.get("aweme_type")
+        # 解析TikTok视频/Parse TikTok video
+        elif "tiktok" in url:
+            platform = "tiktok"
+            aweme_id = await self.TikTokWebCrawler.get_aweme_id(url)
+            data = await self.TikTokWebCrawler.fetch_one_video(aweme_id)
+            data = data.get("itemInfo").get("itemStruct")
+            # $.imagePost exists if aweme_type is photo
+            aweme_type = 150 if data.get("imagePost") else 1
         else:
-            return {'error': 'Unsupported platform'}
-        
-        return result
+            raise ValueError("hybrid_parsing_single_video: Cannot judge the video source from the URL.")
+
+        # 检查是否需要返回最小数据/Check if minimal data is required
+        if not minimal:
+            return data
+
+        # 如果是最小数据，处理数据/If it is minimal data, process the data
+        url_type_code_dict = {
+            # common
+            0: 'video',
+            # Douyin
+            2: 'image',
+            4: 'video',
+            68: 'image',
+            # TikTok
+            51: 'video',
+            55: 'video',
+            58: 'video',
+            61: 'video',
+            150: 'image'
+        }
+        # 判断链接类型/Judge link type
+        url_type = url_type_code_dict.get(aweme_type, 'video')
+
+        """
+        以下为(视频||图片)数据处理的四个方法,如果你需要自定义数据处理请在这里修改.
+        The following are four methods of (video || image) data processing. 
+        If you need to customize data processing, please modify it here.
+        """
+
+        """
+        创建已知数据字典(索引相同)，稍后使用.update()方法更新数据
+        Create a known data dictionary (index the same), 
+        and then use the .update() method to update the data
+        """
+
+        result_data = {
+            'type': url_type,
+            'platform': platform,
+            'aweme_id': aweme_id,
+            'desc': data.get("desc"),
+            'create_time': data.get("create_time"),
+            'author': data.get("author"),
+            'music': data.get("music"),
+            'statistics': data.get("statistics"),
+            'cover_data': {
+                'cover': data.get("video").get("cover"),
+                'origin_cover': data.get("video").get("origin_cover"),
+                'dynamic_cover': data.get("video").get("dynamic_cover")
+            },
+            'hashtags': data.get('text_extra'),
+        }
+        # 创建一个空变量，稍后使用.update()方法更新数据/Create an empty variable and use the .update() method to update the data
+        api_data = None
+        # 判断链接类型并处理数据/Judge link type and process data
+        # 抖音数据处理/Douyin data processing
+        if platform == 'douyin':
+            # 抖音视频数据处理/Douyin video data processing
+            if url_type == 'video':
+                # 将信息储存在字典中/Store information in a dictionary
+                uri = data['video']['play_addr']['uri']
+                wm_video_url_HQ = data['video']['play_addr']['url_list'][0]
+                wm_video_url = f"https://aweme.snssdk.com/aweme/v1/playwm/?video_id={uri}&radio=1080p&line=0"
+                nwm_video_url_HQ = wm_video_url_HQ.replace('playwm', 'play')
+                nwm_video_url = f"https://aweme.snssdk.com/aweme/v1/play/?video_id={uri}&ratio=1080p&line=0"
+                api_data = {
+                    'video_data':
+                        {
+                            'wm_video_url': wm_video_url,
+                            'wm_video_url_HQ': wm_video_url_HQ,
+                            'nwm_video_url': nwm_video_url,
+                            'nwm_video_url_HQ': nwm_video_url_HQ
+                        }
+                }
+            # 抖音图片数据处理/Douyin image data processing
+            elif url_type == 'image':
+                # 无水印图片列表/No watermark image list
+                no_watermark_image_list = []
+                # 有水印图片列表/With watermark image list
+                watermark_image_list = []
+                # 遍历图片列表/Traverse image list
+                for i in data['images']:
+                    no_watermark_image_list.append(i['url_list'][0])
+                    watermark_image_list.append(i['download_url_list'][0])
+                api_data = {
+                    'image_data':
+                        {
+                            'no_watermark_image_list': no_watermark_image_list,
+                            'watermark_image_list': watermark_image_list
+                        }
+                }
+        # TikTok数据处理/TikTok data processing
+        elif platform == 'tiktok':
+            # TikTok视频数据处理/TikTok video data processing
+            if url_type == 'video':
+                # 将信息储存在字典中/Store information in a dictionary
+                wm_video = data['video']['downloadAddr']
+                api_data = {
+                    'video_data':
+                        {
+                            'wm_video_url': wm_video,
+                            'wm_video_url_HQ': wm_video,
+                            'nwm_video_url': data['video']['playAddr'],
+                            'nwm_video_url_HQ': data['video']['bitrateInfo'][0]['PlayAddr']['UrlList'][0]
+                        }
+                }
+            # TikTok图片数据处理/TikTok image data processing
+            elif url_type == 'image':
+                # 无水印图片列表/No watermark image list
+                no_watermark_image_list = []
+                # 有水印图片列表/With watermark image list
+                watermark_image_list = []
+                for i in data['imagePost']['images']:
+                    no_watermark_image_list.append(i['imageURL']['urlList'][0])
+                    # watermark_image_list.append(i['owner_watermark_image']['url_list'][0])
+                api_data = {
+                    'image_data':
+                        {
+                            'no_watermark_image_list': no_watermark_image_list,
+                            'watermark_image_list': watermark_image_list
+                        }
+                }
+        # 更新数据/Update data
+        result_data.update(api_data)
+        return result_data
+
+    async def main(self):
+        # 测试混合解析单一视频接口/Test hybrid parsing single video endpoint
+        # url = "https://v.douyin.com/L4FJNR3/"
+        url = "https://www.tiktok.com/@evil0ctal/video/7156033831819037994"
+        # url = "https://www.tiktok.com/@minecraft/photo/7369296852669205791"
+        minimal = True
+        result = await self.hybrid_parsing_single_video(url, minimal=minimal)
+        print(result)
+
+        # 占位
+        pass
 
 
-# 测试代码
 if __name__ == '__main__':
-    import asyncio
-    
-    async def test():
-        crawler = HybridCrawler()
-        
-        # 测试抖音
-        douyin_url = "https://v.douyin.com/DO5Na3M96Ac/"
-        result = await crawler.hybrid_parsing_single_video(douyin_url, minimal=True)
-        print("抖音测试结果:", json.dumps(result, ensure_ascii=False, indent=2))
-    
-    asyncio.run(test())
+    # 实例化混合爬虫/Instantiate hybrid crawler
+    hybird_crawler = HybridCrawler()
+    # 运行测试代码/Run test code
+    asyncio.run(hybird_crawler.main())
